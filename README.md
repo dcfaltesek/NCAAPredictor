@@ -1,0 +1,134 @@
+# NCAAPredictor
+---
+title: "NCAA Bracket Predictor"
+author: "Dan Faltesek"
+date: "2023-03-11"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## March Madness
+
+As you may or may not be aware, this is the time of year when there is a sports competition for college basketball. The tradition of picking the winners and losers for these games in a bracketed format is a joyus time for nerds, sports fans, and gamblers.
+
+To start with here are a few assumptions:
+
+-   Basketball has frequent strategy changes. We will only use the last two years of games for predictions to compensate for changes, such as the decline in the 2-3 zone defense, or the rise of 3 point shooting.
+
+-   Games are best modeled by the intrinsic properties of the teams, these can be captured through regular season performance data.
+
+-   We do not model the tournament structure. Game locations, dates, times, team conference affiliations, seeding inaccuracies, etc. A true-seeds method is a perfectly fine, lightweight method for building a bracket. To do this, take the list of teams in the tournament organized by your favorite metric (BPI, etc), compare those to the actually awarded seeds. You can find "inversions" where a team should be the higher seed, these are a great source of upsets, many classic 5-12s involve teams that weren't really 5s and others that weren't really 12s. There already seem to be inverted 6-11 match-ups coming (as of 3/11).
+
+To start with we will load the data and key libraries. Keep in mind all my working var names are from the show Transformers: Beast Wars. I guess that is the price to play if you want this bracket. 
+
+```{r loader}
+#I load libraries individually for a variety of reasons 
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+library(rsample)
+library(stringr)
+#data for our model
+optimus <- read.csv("~/optimus.csv")
+#and lets go ahead and add our outcomes
+#if the team on the RIGHT wins, the outcome is 1
+optimus<-optimus %>% mutate(outcome = as.factor(str_count(optimus$Result...5, "^L")))
+```
+
+## Model Assumptions
+
+In order for your model to function, you will need to determine which columns include relevant data. There are 300 columns, including all basic and advanced and opp data for each team. For example, to model the offensive rating of each team:
+
+ORtg...105 + ORtg...99.1
+
+Or the offensive rebounding capacity of each team and their ability to supress the other team's offensive rebounding...
+
+ORB...38 + ORB....149 + ORB...32.1 +  ORB....143.1
+
+If shooting is your game...
+
+X3P....34 + X3P....28.1 + eFG....141.1 + eFG....113
+
+Let's start this out with our intial model. 
+```{r initialmodel}
+#split 
+data_split <- optimus %>%
+  initial_split(prop = .8)
+training_data <- training(data_split)
+validation_data <- testing(data_split)
+library(textrecipes)
+#outcome is WINS, predictors are offensive boards for each team, nothing special
+rec <- recipe(outcome ~ ORB...38 + ORB....115, data = training_data) %>%
+  step_naomit() %>% 
+  prep() 
+train_data<-juice(rec)
+#converter code
+train_data<-mutate_all(train_data, function(x) as.numeric(as.character(x)))
+train_data<-mutate(train_data, outcome = as.factor(outcome))
+val_data <- bake(rec, new_data = validation_data)
+val_data<-mutate_all(val_data, function(x) as.numeric(as.character(x)))
+val_data<-mutate(val_data, outcome = as.factor(outcome))
+val_data<-val_data[complete.cases(val_data),]
+library(parsnip)
+#run the random forest
+is5<-rand_forest("classification") %>%
+  set_engine("randomForest") %>%
+  fit(outcome ~ ., data = train_data) %>%
+  predict(new_data = val_data)%>%
+  mutate(truth = val_data$outcome)
+library(ggplot2)
+#now plot that
+ggplot(is5, aes(as.numeric(.pred_class), as.numeric(truth), colour=as.numeric(.pred_class)-as.numeric(truth)))+geom_jitter()+theme_classic()+theme(axis.text.x = element_text(angle = 45))
+is5$truth == is5$.pred_class
+data.frame(is5) %>% 
+  mutate(x=.pred_class==truth) %>% 
+  count(x)
+```
+
+To interpret what you are seeing here. The model of shot defense and rebounding nets a good model. The return from the model is a factor implying that the left team or the right team wins or loses. Dots in the upper right and lower left are accurate predictions. We can drill into the games that it got wrong, which is tricky to replicate given the data split. In versions in development, three of those 18 misses involved the mighty Peacocks of St. Peter's. 
+
+## How do we add our own data?
+
+To add new predictive data, you would need to load in your own CSV with teams listed on the right and on the left, an example of that is provided. It needs to be joined in the same what that the optimus dataset was produced using this function...
+
+```{r joiner}
+#when you run the joiner function, its in a seperate R file, you will get a happy dataframe called primal
+#for our own sanity, lets just import our completed basic version
+primal <- read.csv("~/primal.csv")
+#this is some heavy brute force action, we know the columns have the same data, so lets just use the colnames from optimus and not worry about it
+colnames(primal)<-colnames(optimus)[1:300]
+tibble(primal)
+```
+
+At this point we have run our function and now see our happy little dataframe with all the stuff we need to predict the outcomes. 
+
+```{r predictive output}
+#results of the joiner function predicted 
+gamez_data <- bake(rec, new_data = primal)
+is6<-rand_forest("classification") %>%
+  set_engine("randomForest") %>%
+  fit(outcome ~ ., data = train_data) %>%
+  predict(new_data = gamez_data)
+is6
+```
+
+So we would use our result, 0 = left team wins, 1 = right team wins. Depending on how your particular markdown breaks the training set, you may get different answers. Just update your new in Excel and run return again with the output chunk and your bracket is all done. 
+Footer
+© 2023 GitHub, Inc.
+Footer navigation
+
+    Terms
+    Privacy
+    Security
+    Status
+    Docs
+    Contact GitHub
+    Pricing
+    API
+    Training
+    Blog
+    About
+
