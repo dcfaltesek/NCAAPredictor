@@ -1,0 +1,399 @@
+---
+title: "NCAA Bracket Predictor"
+author: "Dan Faltesek"
+date: "2023-03-11"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+return<-function(X){
+  colnames(xx23)[2]<-"School"
+  O<-str_replace_all(xx23$School, "Southern California", "USC")
+  O<-str_replace_all(O, "Louisiana State", "LSU")
+  O<-str_replace_all(O, "North Carolina", "UNC")
+  O<-str_replace_all(O, "Louisiana State", "LSU")
+  O<-str_replace_all(O, "Brigham Young", "BYU")
+  O<-str_replace_all(O, "Connecticut", "UConn")
+  O<-str_replace_all(O, "Appalachian State", "App. St.")
+  O<-str_replace_all(O, "Eastern Washington", "Eastern Wash.")
+  O<-str_replace_all(O, "Mount St. Mary's", "Mt. St. Mary's")
+  O<-str_replace_all(O, "UC Santa Barbara", "UCSB")
+  O<-str_replace_all(O, "Abilene Christian", "Abilene Christ.")
+  O<-str_replace_all(O, "Saint Peter's", "St. Peter's")
+  O<-str_replace_all(O, "Saint Mary's (CA)", "Saint Mary's")
+  O<-str_replace_all(O, "Jacksonville State", "Jacksonville St.")
+  O<-str_replace_all(O, "South Dakota State", "S Dakota St.")
+  O<-str_replace_all(O, "Texas A&M-Corpus Christi", "Tx AM-CC")
+  O<-str_replace_all(O, "New Mexico State", "New Mexico St.")
+  O<-str_replace_all(O, "Cal State Fullerton", "Cal St Fullerton")
+  rhinox2<-data.frame(xx23, O)
+  A<-inner_join(X, rhinox2)
+  colnames(X)[4]<-"V"
+  colnames(X)[3]<-"O"  
+  B<-inner_join(X, rhinox2)  
+  primal<<-bind_cols(A,B)}
+```
+
+## March Madness
+
+As you may or may not be aware, this is the time of year when there is a sports competition for college basketball. The tradition of picking the winners and losers for these games in a bracketed format is a joyus time for nerds, sports fans, and gamblers.
+
+To start with here are a few assumptions:
+
+-   Basketball has frequent strategy changes. We will only use the last two years of games for predictions to compensate for changes, such as the decline in the 2-3 zone defense, or the rise of 3 point shooting.
+
+-   The UVA-UMBC game is NOT in this data set. With that game in, you will get much more aggressive results from these models, assuming it ends up on the train side.
+
+-   All data is from College Sports Reference, they are the real MVPs.
+
+-   Games are best modeled by the intrinsic properties of the teams, these can be captured through regular season performance data.
+
+-   We do not model the tournament structure. Game locations, dates, times, team conference affiliations, seeding inaccuracies, etc. A true-seeds method is a perfectly fine, lightweight method for building a bracket. To do this, take the list of teams in the tournament organized by your favorite metric (BPI, etc), compare those to the actually awarded seeds. You can find "inversions" where a team should be the higher seed, these are a great source of upsets, many classic 5-12s involve teams that weren't really 5s and others that weren't really 12s. There already seem to be inverted 6-11 match-ups coming (as of 3/11).
+
+-   The data split matters more than anything.
+
+To start with we will load the data and key libraries. Keep in mind all my working var names are from the show Transformers: Beast Wars. I guess that is the price to play if you want this bracket.
+
+```{r loader}
+#I load libraries individually for a variety of reasons 
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+library(rsample)
+library(stringr)
+
+#data for our model
+optimus <- read.csv("~/optimus.csv")
+xx23 <- read.csv("~/xx23.csv")
+
+#and lets go ahead and add our outcomes
+#if the team on the RIGHT wins, the outcome is 1
+optimus<-optimus %>% mutate(outcome = as.factor(str_count(optimus$Result...5, "^L")))
+```
+
+## Model Assumptions
+
+In order for your model to function, you will need to determine which columns include relevant data. There are 300 columns, including all basic and advanced and opp data for each team. For example, to model the offensive rating of each team:
+
+ORtg...105 + ORtg...99.1
+
+Or the offensive rebounding capacity of each team and their ability to supress the other team's offensive rebounding...
+
+ORB...38 + ORB....149 + ORB...32.1 + ORB....143.1
+
+If shooting is your game...
+
+X3P....34 + X3P....28.1 + eFG....141.1 + eFG....113
+
+Let's start this out with our intial model.
+
+```{r initialmodel}
+
+#split - we will keep this split for all our examples
+data_split <- optimus %>%
+  initial_split(prop = .8)
+
+training_data <- training(data_split)
+validation_data <- testing(data_split)
+
+
+library(textrecipes)
+#outcome is WINS, predictors are offensive boards for each team, nothing special
+rec <- recipe(outcome ~ ORB...38 + ORB....115, data = training_data) %>%
+  step_naomit() %>% 
+  prep() 
+
+train_data<-juice(rec)
+
+#converter code
+train_data<-mutate_all(train_data, function(x) as.numeric(as.character(x)))
+train_data<-mutate(train_data, outcome = as.factor(outcome))
+
+val_data <- bake(rec, new_data = validation_data)
+val_data<-mutate_all(val_data, function(x) as.numeric(as.character(x)))
+val_data<-mutate(val_data, outcome = as.factor(outcome))
+
+
+val_data<-val_data[complete.cases(val_data),]
+
+library(parsnip)
+#run the random forest
+is5<-rand_forest("classification") %>%
+  set_engine("randomForest") %>%
+  fit(outcome ~ ., data = train_data) %>%
+  predict(new_data = val_data)%>%
+  mutate(truth = val_data$outcome)
+
+library(ggplot2)
+#now plot that
+ggplot(is5, aes(as.numeric(.pred_class), as.numeric(truth), colour=as.numeric(.pred_class)-as.numeric(truth)))+geom_jitter()+theme_classic()+theme(axis.text.x = element_text(angle = 45))
+
+is5$truth == is5$.pred_class
+data.frame(is5) %>% 
+  mutate(x=.pred_class==truth) %>% 
+  count(x)
+
+```
+
+To interpret what you are seeing here. The model of shot defense and rebounding nets a good model. The return from the model is a factor implying that the left team or the right team wins or loses. Dots in the upper right and lower left are accurate predictions. We can drill into the games that it got wrong, which is tricky to replicate given the data split.
+
+## How do we add our own data?
+
+To add new predictive data, you would need to load in your own CSV with teams listed on the right and on the left, an example of that is provided. It needs to be joined in the same what that the optimus dataset was produced using this function...
+
+```{r joiner}
+#when you run the joiner function, its in a seperate R file, you will get a happy dataframe called primal
+
+#for our own sanity, lets just import our completed basic version
+new <- read.csv("~/new.csv")
+primal <- read.csv("~/primal.csv")
+
+#this is some heavy brute force action, we know the columns have the same data, so lets just use the colnames from optimus and not worry about it
+colnames(primal)<-colnames(optimus)[1:300]
+
+tibble(primal)
+tibble(new)
+```
+
+At this point we have run our function and now see our happy little dataframe with all the stuff we need to predict the outcomes.
+
+```{r predictive output}
+#results of the joiner function predicted 
+gamez_data <- bake(rec, new_data = primal)
+
+is6<-rand_forest("classification") %>%
+  set_engine("randomForest") %>%
+  fit(outcome ~ ., data = train_data) %>%
+  predict(new_data = gamez_data)
+
+is6
+
+```
+
+So we would use our result, 0 = left team wins, 1 = right team wins. Depending on how your particular markdown breaks the training set, you may get different answers. Just update your new in Excel and run return again with the output chunk and your bracket is all done.
+
+## Now less ridiculous
+
+You should start with the data dictionary to find variables that actually make sense for you.
+
+My formula this time will be: Offensive Rating of each team and the defensive version of that, which should access offensive and defensive capacity for both teams. ORtg...105+ORtg...139+ORtg...255+ORtg...289
+
+```{r better model}
+library(textrecipes)
+#outcome is WINS, predictors are offensive boards for each team, nothing special
+rec <- recipe(outcome ~ ORtg...105+ORtg...139+ORtg...255+ORtg...289, data = training_data) %>%
+  step_naomit() %>% 
+  prep() 
+
+train_data<-juice(rec)
+
+#converter code
+train_data<-mutate_all(train_data, function(x) as.numeric(as.character(x)))
+train_data<-mutate(train_data, outcome = as.factor(outcome))
+
+val_data <- bake(rec, new_data = validation_data)
+val_data<-mutate_all(val_data, function(x) as.numeric(as.character(x)))
+val_data<-mutate(val_data, outcome = as.factor(outcome))
+
+
+val_data<-val_data[complete.cases(val_data),]
+
+library(parsnip)
+#run the random forest
+is5<-rand_forest("classification") %>%
+  set_engine("randomForest") %>%
+  fit(outcome ~ ., data = train_data) %>%
+  predict(new_data = val_data)%>%
+  mutate(truth = val_data$outcome)
+
+library(ggplot2)
+#now plot that
+ggplot(is5, aes(as.numeric(.pred_class), as.numeric(truth), colour=as.numeric(.pred_class)-as.numeric(truth)))+geom_jitter()+theme_classic()+theme(axis.text.x = element_text(angle = 45))
+
+is5$truth == is5$.pred_class
+data.frame(is5) %>% 
+  mutate(x=.pred_class==truth) %>% 
+  count(x)
+```
+
+That performed better than just offensive rebounds, lets try offensive boards, turnovers, and free throws per field goal... TOV....114+TOV....264+FT.FGA...266+FT.FGA...116
+
+```{r even better model}
+library(textrecipes)
+#outcome is WINS, predictors are offensive boards for each team, nothing special
+rec <- recipe(outcome ~ ORB...38 + ORB....115+TOV....114+TOV....264+FT.FGA...266+FT.FGA...116, data = training_data) %>%
+  step_naomit() %>% 
+  prep() 
+
+train_data<-juice(rec)
+
+#converter code
+train_data<-mutate_all(train_data, function(x) as.numeric(as.character(x)))
+train_data<-mutate(train_data, outcome = as.factor(outcome))
+
+val_data <- bake(rec, new_data = validation_data)
+val_data<-mutate_all(val_data, function(x) as.numeric(as.character(x)))
+val_data<-mutate(val_data, outcome = as.factor(outcome))
+
+
+val_data<-val_data[complete.cases(val_data),]
+
+library(parsnip)
+#run the random forest
+is5<-rand_forest("classification") %>%
+  set_engine("randomForest") %>%
+  fit(outcome ~ ., data = train_data) %>%
+  predict(new_data = val_data)%>%
+  mutate(truth = val_data$outcome)
+
+library(ggplot2)
+#now plot that
+ggplot(is5, aes(as.numeric(.pred_class), as.numeric(truth), colour=as.numeric(.pred_class)-as.numeric(truth)))+geom_jitter()+theme_classic()+theme(axis.text.x = element_text(angle = 45))
+
+is5$truth == is5$.pred_class
+data.frame(is5) %>% 
+  mutate(x=.pred_class==truth) %>% 
+  count(x)
+
+
+```
+
+Once again but this time with team 3 data and defensive eFG X3PAr...107+X3PAr...257+eFG....297+eFG....147
+
+```{r great model}
+
+
+rec <- recipe(outcome ~ ORB...38 + ORB....115+TOV....114+TOV....264+FT.FGA...266+FT.FGA...116+
+                X3PAr...107+X3PAr...257+eFG....297+eFG....147, data = training_data) %>%
+  step_naomit() %>% 
+  prep() 
+
+train_data<-juice(rec)
+
+#converter code
+train_data<-mutate_all(train_data, function(x) as.numeric(as.character(x)))
+train_data<-mutate(train_data, outcome = as.factor(outcome))
+
+val_data <- bake(rec, new_data = validation_data)
+val_data<-mutate_all(val_data, function(x) as.numeric(as.character(x)))
+val_data<-mutate(val_data, outcome = as.factor(outcome))
+
+
+val_data<-val_data[complete.cases(val_data),]
+
+library(parsnip)
+#run the random forest
+is5<-rand_forest("classification") %>%
+  set_engine("randomForest") %>%
+  fit(outcome ~ ., data = train_data) %>%
+  predict(new_data = val_data)%>%
+  mutate(truth = val_data$outcome)
+
+library(ggplot2)
+#now plot that
+ggplot(is5, aes(as.numeric(.pred_class), as.numeric(truth), colour=as.numeric(.pred_class)-as.numeric(truth)))+geom_jitter()+theme_classic()+theme(axis.text.x = element_text(angle = 45))
+
+is5$truth == is5$.pred_class
+data.frame(is5) %>% 
+  mutate(x=.pred_class==truth) %>% 
+  count(x)
+
+
+```
+
+That usually doesn't help, we just have so much data. Why not go super simple with the SRS of each team?
+
+```{r SRS alone}
+
+rec <- recipe(outcome ~ SRS...163 + SRS...13, data = training_data) %>%
+  step_naomit() %>% 
+  prep() 
+
+train_data<-juice(rec)
+
+#converter code
+train_data<-mutate_all(train_data, function(x) as.numeric(as.character(x)))
+train_data<-mutate(train_data, outcome = as.factor(outcome))
+
+val_data <- bake(rec, new_data = validation_data)
+val_data<-mutate_all(val_data, function(x) as.numeric(as.character(x)))
+val_data<-mutate(val_data, outcome = as.factor(outcome))
+
+
+val_data<-val_data[complete.cases(val_data),]
+
+library(parsnip)
+#run the random forest
+is5<-rand_forest("classification") %>%
+  set_engine("randomForest") %>%
+  fit(outcome ~ ., data = train_data) %>%
+  predict(new_data = val_data)%>%
+  mutate(truth = val_data$outcome)
+
+library(ggplot2)
+#now plot that
+ggplot(is5, aes(as.numeric(.pred_class), as.numeric(truth), colour=as.numeric(.pred_class)-as.numeric(truth)))+geom_jitter()+theme_classic()+theme(axis.text.x = element_text(angle = 45))
+
+is5$truth == is5$.pred_class
+data.frame(is5) %>% 
+  mutate(x=.pred_class==truth) %>% 
+  count(x)
+
+
+
+
+```
+
+## Your Takeaways
+
+Depending on how your split went, you can have very different results. The next step on a project like this would be to add PCA and SEM methods to find the intrinsic dimension. At the same time, adding more factors often doesn't help the model get more accurate.
+
+Why?
+
+Teams can win for lots of different reasons. A team might play a slash 'n crash system like the Grizz in the NBA. They might have issues with transition defense, but that doesn't matter if you are smashing a put-back dunk. Teams that are amazing generating steals can often be bad because their players are out of position gambling for steals. If each steal for that team means two open 3s you can be getting blown out pretty quickly. Playing loose might mean you turn it over more. Defensive teams are well-established to be high variance, meaning that our attempts to model that can be very noisy.
+
+In conclusion, for your enjoyment, some Final Four match-up possibilities.
+
+```{r final}
+#ran new 2 through the return function, so primal now means some new stuff
+new2 <- read.csv("~/new2.csv")
+return(new2)
+
+rec <- recipe(outcome ~ ORB...38 + ORB....115+TOV....114+TOV....264+FT.FGA...266+FT.FGA...116+
+                X3PAr...107+X3PAr...257+eFG....297+eFG....147, data = training_data) %>%
+  step_naomit() %>% 
+  prep() 
+
+train_data<-juice(rec)
+
+#converter code
+train_data<-mutate_all(train_data, function(x) as.numeric(as.character(x)))
+train_data<-mutate(train_data, outcome = as.factor(outcome))
+
+val_data <- bake(rec, new_data = validation_data)
+val_data<-mutate_all(val_data, function(x) as.numeric(as.character(x)))
+val_data<-mutate(val_data, outcome = as.factor(outcome))
+
+
+val_data<-val_data[complete.cases(val_data),]
+
+library(parsnip)
+#run the random forest
+
+gamez_data <- bake(rec, new_data = primal)
+
+is6<-rand_forest("classification") %>%
+  set_engine("randomForest") %>%
+  fit(outcome ~ ., data = train_data) %>%
+  predict(new_data = gamez_data)
+
+
+new2
+is6
+```
+
+Enjoy.
