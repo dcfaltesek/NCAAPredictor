@@ -19,10 +19,12 @@ return<-function(X){
   O<-str_replace_all(O, "New Mexico State", "New Mexico St.")
   O<-str_replace_all(O, "Cal State Fullerton", "Cal St Fullerton")
   rhinox2<-data.frame(xx23, O)
-  colnames(X)[3]<-"O"
-  colnames(X)[4]<-"V"
-  A<-inner_join(new, rhinox2)
+  A<-inner_join(X, rhinox2)
   colnames(X)[4]<-"V"
   colnames(X)[3]<-"O"  
-  B<-inner_join(new, rhinox2)  
+  B<-inner_join(X, rhinox2)  
   primal<<-bind_cols(A,B)}
+
+return(new)
+new
+primal
