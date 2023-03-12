@@ -15,3 +15,5 @@ Step Four: Upload that CSV into R and run it as the argument passed in the retur
 Step Five: run the code in an is6 bracket to yield predictions.
 
 Step Six: you won't profit, the best models only get it right about two-thirds of the time.
+
+[The full markdown with examples, code and such.](https://danielfaltesek.com/predictions.html)
