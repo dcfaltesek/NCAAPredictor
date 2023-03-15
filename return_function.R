@@ -25,6 +25,6 @@ return<-function(X){
   B<-inner_join(X, rhinox2)  
   primal<<-bind_cols(A,B)}
 
-return(new)
-new
-primal
+return(new3)
+
+
