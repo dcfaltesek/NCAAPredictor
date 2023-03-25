@@ -1,3 +1,4 @@
+library(stringr)
 return<-function(X){
   colnames(xx23)[2]<-"School"
   O<-str_replace_all(xx23$School, "Southern California", "USC")
@@ -25,6 +26,7 @@ return<-function(X){
   B<-inner_join(X, rhinox2)  
   primal<<-bind_cols(A,B)}
 
-return(new3)
+return(new14)
+new14
 
-
+View(primal)

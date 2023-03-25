@@ -1,4 +1,10 @@
 #2023 updated method for NCAA game selection
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+library(parsnip)
+library(rsample)
+library(tidymodels)
 
 data_split <- optimus %>%
   initial_split(prop = .8)
@@ -7,7 +13,8 @@ training_data <- training(data_split)
 validation_data <- testing(data_split)
 
 
-rec <- recipe(outcome ~ SOS...14 + SOS...164+X3P....34+X3P....184, data = training_data) %>%
+rec <- recipe(outcome ~ ORtg...105+ORtg...255+Pace...254+Pace...104+ ORB...38 + ORB....115+TOV....114+TOV....264+FT.FGA...266+FT.FGA...116+
+                X3PAr...107+X3PAr...257+eFG....297+eFG....147+FT.FGA...116+FT.FGA...266+ORtg...289+ORtg...139, data = training_data) %>%
   step_naomit() %>% 
   prep() 
 
@@ -51,7 +58,12 @@ is6<-rand_forest("classification") %>%
 
 is6
 View(is6)
+gambling<-data.frame(is6, new14)
+View(gambling)
 
+
+
+FG...29+FG...179
 
 SOS...14 + SOS...8.1+SRS...163+SRS...13+TS....108+TRB....109+TS....258+TRB....259
 
